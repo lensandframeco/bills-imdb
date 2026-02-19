@@ -508,11 +508,13 @@ def execute_tools_parallel(tool_blocks, tmdb_tok):
 with st.sidebar:
     st.header("Settings")
 
-    api_key = st.text_input(
-        "Anthropic API Key",
-        type="password",
-        value=os.environ.get("ANTHROPIC_API_KEY") or st.secrets.get("ANTHROPIC_API_KEY", ""),
-    )
+    # Read API keys from env/secrets silently; only show input if not configured
+    _env_api_key = os.environ.get("ANTHROPIC_API_KEY") or st.secrets.get("ANTHROPIC_API_KEY", "")
+    if _env_api_key:
+        api_key = _env_api_key
+        st.caption("Anthropic API Key: configured")
+    else:
+        api_key = st.text_input("Anthropic API Key", type="password")
 
     model = st.selectbox(
         "Model",
@@ -522,12 +524,16 @@ with st.sidebar:
 
     st.divider()
     st.header("TMDB API")
-    tmdb_token = st.text_input(
-        "Read Access Token",
-        type="password",
-        value=os.environ.get("TMDB_READ_TOKEN") or st.secrets.get("TMDB_READ_TOKEN", ""),
-        help="Free from themoviedb.org (Settings > API)",
-    )
+    _env_tmdb = os.environ.get("TMDB_READ_TOKEN") or st.secrets.get("TMDB_READ_TOKEN", "")
+    if _env_tmdb:
+        tmdb_token = _env_tmdb
+        st.caption("Read Access Token: configured")
+    else:
+        tmdb_token = st.text_input(
+            "Read Access Token",
+            type="password",
+            help="Free from themoviedb.org (Settings > API)",
+        )
 
     st.divider()
     st.header("MCP Servers (Optional)")
