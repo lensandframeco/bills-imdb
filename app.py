@@ -16,6 +16,33 @@ load_dotenv()
 st.set_page_config(page_title="Bill's IMDB", layout="wide")
 st.title("Bill's IMDB")
 
+# ---------------------------------------------------------------------------
+# Session state (must run before sidebar)
+# ---------------------------------------------------------------------------
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "uploaded_file_data" not in st.session_state:
+    st.session_state.uploaded_file_data = None
+if "conversation_id" not in st.session_state:
+    st.session_state.conversation_id = str(uuid.uuid4())
+if "saved_conversations" not in st.session_state:
+    st.session_state.saved_conversations = []
+if "history_loaded" not in st.session_state:
+    st.session_state.history_loaded = False
+
+# Load search history from browser localStorage (once per session)
+if not st.session_state.history_loaded:
+    raw_history = streamlit_js_eval(
+        js_expressions="localStorage.getItem('bills_imdb_history')",
+        key="load_history",
+    )
+    if raw_history not in (None, 0, ""):
+        try:
+            st.session_state.saved_conversations = json.loads(raw_history)
+        except (json.JSONDecodeError, TypeError):
+            pass
+        st.session_state.history_loaded = True
+
 SYSTEM_PROMPT = """\
 You are an expert TV production research assistant helping entertainment \
 industry professionals. You have deep knowledge of television history, \
@@ -681,34 +708,6 @@ def run_agentic_loop(client, model_id, api_messages, tools, mcp_servers,
         all_content.extend(synth.content)
 
     return all_content, full_text
-
-
-# ---------------------------------------------------------------------------
-# Session state
-# ---------------------------------------------------------------------------
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "uploaded_file_data" not in st.session_state:
-    st.session_state.uploaded_file_data = None
-if "conversation_id" not in st.session_state:
-    st.session_state.conversation_id = str(uuid.uuid4())
-if "saved_conversations" not in st.session_state:
-    st.session_state.saved_conversations = []
-if "history_loaded" not in st.session_state:
-    st.session_state.history_loaded = False
-
-# Load search history from browser localStorage (once per session)
-if not st.session_state.history_loaded:
-    raw_history = streamlit_js_eval(
-        js_expressions="localStorage.getItem('bills_imdb_history')",
-        key="load_history",
-    )
-    if raw_history not in (None, 0, ""):
-        try:
-            st.session_state.saved_conversations = json.loads(raw_history)
-        except (json.JSONDecodeError, TypeError):
-            pass
-        st.session_state.history_loaded = True
 
 
 def _save_history_to_browser():
