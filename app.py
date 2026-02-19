@@ -783,9 +783,6 @@ if prompt := st.chat_input(
                     expanded=False,
                 )
 
-            # Show tool call details below the response
-            display_tool_calls(all_content)
-
             st.session_state.messages.append({
                 "role": "assistant",
                 "display": full_text.strip(),
