@@ -6,7 +6,6 @@ import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
-from duckduckgo_search import DDGS
 
 load_dotenv()
 
@@ -42,11 +41,11 @@ Tool strategy:
 1. **First round (parallel):** Call ALL of these at once:
    - tmdb_search to find their TMDB ID
    - web_search: "[name] site:imdb.com" to find their IMDB page
-   - trades_search: "[name] new project 2025 2026" to find upcoming \
-work, deals, castings, and buzz in the trades
+   - web_search: "[name] deadline variety new project 2025 2026" for \
+trades coverage on upcoming work, deals, castings, and buzz
 2. **Second round:** Use tmdb_tv_details / tmdb_person_credits if TMDB \
-returned good results. If you need more on upcoming work, call \
-trades_search with "[name] cast upcoming series pilot" or similar.
+returned good results. Use additional web_search calls for upcoming \
+work, deals, or trades coverage as needed.
 3. Combine ALL sources into one comprehensive answer. Trade publication \
 articles and web search results are just as valid as TMDB data.
 
@@ -106,28 +105,10 @@ TMDB_BASE = "https://api.themoviedb.org/3"
 # ---------------------------------------------------------------------------
 # Tool definitions
 # ---------------------------------------------------------------------------
-WEB_SEARCH_TOOL = {
+ANTHROPIC_WEB_SEARCH_TOOL = {
+    "type": "web_search_20250305",
     "name": "web_search",
-    "description": (
-        "Search the web for information about TV shows, entertainment "
-        "industry people, production companies, network executives, ratings, "
-        "awards, and industry news. Covers IMDb, Wikipedia, Deadline, "
-        "Variety, THR, The Futon Critic, and more. Use for anything TMDB "
-        "doesn't cover, like executive roles, deals, or industry analysis."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": (
-                    "Search query. Be specific: include names, show titles, "
-                    "networks, years."
-                ),
-            }
-        },
-        "required": ["query"],
-    },
+    "max_uses": 10,
 }
 
 TMDB_SEARCH_TOOL = {
@@ -215,95 +196,12 @@ TMDB_SEASON_DETAILS_TOOL = {
     },
 }
 
-TRADES_SEARCH_TOOL = {
-    "name": "trades_search",
-    "description": (
-        "Search entertainment trade publications: Deadline, Variety, "
-        "Hollywood Reporter (THR), The Wrap, IndieWire, Backstage, and "
-        "Broadcasting & Cable. Use for deals, hirings, firings, executive "
-        "moves, agency news, pilot pickups, renewals, cancellations, and "
-        "industry analysis. More targeted than general web search for "
-        "entertainment industry news."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": (
-                    "Search query. Include names, titles, companies. "
-                    "E.g., 'John Smith showrunner deal' or "
-                    "'Paradigm talent agency hires'."
-                ),
-            }
-        },
-        "required": ["query"],
-    },
-}
-
-TRADE_SITES = [
-    "deadline.com",
-    "variety.com",
-    "hollywoodreporter.com",
-    "thewrap.com",
-    "indiewire.com",
-    "backstage.com",
-    "broadcastingcable.com",
-    "tvline.com",
-]
-
 MAX_TOOL_ROUNDS = 6
 
 
 # ---------------------------------------------------------------------------
 # Tool execution
 # ---------------------------------------------------------------------------
-def execute_trades_search(query):
-    """Search entertainment trade publications specifically."""
-    site_filter = " OR ".join(f"site:{s}" for s in TRADE_SITES)
-    full_query = f"{query} ({site_filter})"
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.text(full_query, max_results=8))
-        if not results:
-            # Fallback: try without site filter but add "deadline variety THR"
-            with DDGS() as ddgs:
-                results = list(ddgs.text(
-                    f"{query} deadline variety hollywood reporter",
-                    max_results=6,
-                ))
-        if not results:
-            return "No trade publication results found. Try a different query."
-        formatted = []
-        for r in results:
-            formatted.append(
-                f"Source: {r['href']}\n"
-                f"Title: {r['title']}\n"
-                f"Snippet: {r['body']}"
-            )
-        return "\n\n".join(formatted)
-    except Exception as e:
-        return f"Trades search error: {e}. Try a different query."
-
-
-def execute_web_search(query):
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=6))
-        if not results:
-            return "No results found. Try a different query."
-        formatted = []
-        for r in results:
-            formatted.append(
-                f"Title: {r['title']}\n"
-                f"Snippet: {r['body']}\n"
-                f"URL: {r['href']}"
-            )
-        return "\n\n".join(formatted)
-    except Exception as e:
-        return f"Search error: {e}. Try a different query."
-
-
 def tmdb_get(endpoint, token, params=None):
     headers = {
         "Authorization": f"Bearer {token}",
@@ -458,11 +356,7 @@ def execute_tmdb_season_details(show_id, season_number, token):
 
 def execute_tool(name, tool_input, tmdb_tok):
     try:
-        if name == "web_search":
-            return execute_web_search(tool_input.get("query", ""))
-        elif name == "trades_search":
-            return execute_trades_search(tool_input.get("query", ""))
-        elif name == "tmdb_search":
+        if name == "tmdb_search":
             return execute_tmdb_search(
                 tool_input["query"], tool_input["type"], tmdb_tok
             )
@@ -562,7 +456,7 @@ with st.sidebar:
             value=os.environ.get("MCP_SERVER_TOKEN", ""),
         )
 
-    active = ["Web Search", "Trades (THR/Deadline/Variety)"]
+    active = ["Web Search"]
     if tmdb_token:
         active.append("TMDB")
     if mcp_url:
@@ -579,7 +473,7 @@ with st.sidebar:
 # Helpers
 # ---------------------------------------------------------------------------
 def build_tools_and_mcp():
-    tools = [WEB_SEARCH_TOOL, TRADES_SEARCH_TOOL]
+    tools = [ANTHROPIC_WEB_SEARCH_TOOL]
     if tmdb_token:
         tools.extend([
             TMDB_SEARCH_TOOL, TMDB_TV_DETAILS_TOOL,
@@ -610,11 +504,7 @@ def tool_call_label(block):
     """Human-readable label for a tool call."""
     inp = block.input if isinstance(block.input, dict) else {}
     name = block.name
-    if name == "web_search":
-        return f"Web search: {inp.get('query', '')}"
-    elif name == "trades_search":
-        return f"Trades search: {inp.get('query', '')}"
-    elif name == "tmdb_search":
+    if name == "tmdb_search":
         return f"TMDB search ({inp.get('type', '')}): {inp.get('query', '')}"
     elif name == "tmdb_tv_details":
         return f"TMDB show details (ID: {inp.get('show_id', '')})"
@@ -636,6 +526,21 @@ def display_tool_calls(content_blocks):
         if block_type == "thinking":
             with st.expander("Thinking"):
                 st.markdown(block.thinking)
+
+        elif block_type == "server_tool_use":
+            inp = block.input if isinstance(block.input, dict) else {}
+            with st.expander(f"Web search: {inp.get('query', '')}"):
+                st.json(inp)
+
+        elif block_type == "web_search_tool_result":
+            content = getattr(block, "content", []) or []
+            n = len(content)
+            with st.expander(f"Search results ({n} found)"):
+                for item in content:
+                    title = getattr(item, "title", "")
+                    url = getattr(item, "url", "")
+                    if title or url:
+                        st.markdown(f"- [{title}]({url})" if url else f"- {title}")
 
         elif block_type == "tool_use":
             with st.expander(tool_call_label(block)):
