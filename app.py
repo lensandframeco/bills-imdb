@@ -670,7 +670,7 @@ def run_agentic_loop(client, model_id, api_messages, tools, mcp_servers,
         is_last_round = round_num == MAX_TOOL_ROUNDS - 1
         kwargs = {
             "model": model_id,
-            "max_tokens": 8192,
+            "max_tokens": 16384,
             "system": SYSTEM_PROMPT,
             "messages": api_messages,
             "thinking": {"type": "adaptive"},
@@ -730,6 +730,33 @@ def run_agentic_loop(client, model_id, api_messages, tools, mcp_servers,
 
         # Add spacing between rounds
         full_text += "\n\n"
+
+    # Safety net: if the final round produced no visible text (e.g. thinking
+    # consumed the entire token budget), force one more synthesis call.
+    last_round_has_text = any(
+        getattr(b, "type", None) == "text" and getattr(b, "text", "").strip()
+        for b in response.content
+    )
+    if not last_round_has_text and round_num > 0:
+        api_messages.append(
+            {"role": "assistant", "content": response.content}
+        )
+        api_messages.append(
+            {"role": "user", "content": "Please provide your complete answer now."}
+        )
+        status.update(label="Generating final answer...")
+        with client.messages.stream(
+            model=model_id,
+            max_tokens=16384,
+            system=SYSTEM_PROMPT,
+            messages=api_messages,
+        ) as stream:
+            for text in stream.text_stream:
+                full_text += text
+                text_container.markdown(full_text + "▌")
+            synth = stream.get_final_message()
+        text_container.markdown(full_text)
+        all_content.extend(synth.content)
 
     return all_content, full_text
 
