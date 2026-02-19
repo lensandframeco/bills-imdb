@@ -509,7 +509,16 @@ with st.sidebar:
     st.header("Settings")
 
     # Read API keys from env/secrets silently; only show input if not configured
-    _env_api_key = os.environ.get("ANTHROPIC_API_KEY") or st.secrets.get("ANTHROPIC_API_KEY", "")
+    def _get_secret(key):
+        val = os.environ.get(key)
+        if val:
+            return val
+        try:
+            return st.secrets[key]
+        except (KeyError, FileNotFoundError):
+            return ""
+
+    _env_api_key = _get_secret("ANTHROPIC_API_KEY")
     if _env_api_key:
         api_key = _env_api_key
         st.caption("Anthropic API Key: configured")
@@ -524,7 +533,7 @@ with st.sidebar:
 
     st.divider()
     st.header("TMDB API")
-    _env_tmdb = os.environ.get("TMDB_READ_TOKEN") or st.secrets.get("TMDB_READ_TOKEN", "")
+    _env_tmdb = _get_secret("TMDB_READ_TOKEN")
     if _env_tmdb:
         tmdb_token = _env_tmdb
         st.caption("Read Access Token: configured")
