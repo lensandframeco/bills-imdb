@@ -5,8 +5,11 @@ import requests
 import json
 import re
 import os
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
+from streamlit_js_eval import streamlit_js_eval
+import streamlit.components.v1 as components
 
 load_dotenv()
 
@@ -465,9 +468,22 @@ with st.sidebar:
     st.success(f"Active: {', '.join(active)}")
 
     st.divider()
-    if st.button("Clear Conversation"):
+    if st.button("New Conversation"):
+        st.session_state.conversation_id = str(uuid.uuid4())
         st.session_state.messages = []
         st.rerun()
+
+    # Search history
+    saved = st.session_state.saved_conversations
+    past = [c for c in saved if c["id"] != st.session_state.conversation_id]
+    if past:
+        st.divider()
+        st.header("Search History")
+        for conv in reversed(past):
+            if st.button(conv["title"][:50], key=f"hist_{conv['id']}"):
+                st.session_state.conversation_id = conv["id"]
+                st.session_state.messages = conv["messages"]
+                st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -674,6 +690,66 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "uploaded_file_data" not in st.session_state:
     st.session_state.uploaded_file_data = None
+if "conversation_id" not in st.session_state:
+    st.session_state.conversation_id = str(uuid.uuid4())
+if "saved_conversations" not in st.session_state:
+    st.session_state.saved_conversations = []
+if "history_loaded" not in st.session_state:
+    st.session_state.history_loaded = False
+
+# Load search history from browser localStorage (once per session)
+if not st.session_state.history_loaded:
+    raw_history = streamlit_js_eval(
+        js_expressions="localStorage.getItem('bills_imdb_history')",
+        key="load_history",
+    )
+    if raw_history not in (None, 0, ""):
+        try:
+            st.session_state.saved_conversations = json.loads(raw_history)
+        except (json.JSONDecodeError, TypeError):
+            pass
+        st.session_state.history_loaded = True
+
+
+def _save_history_to_browser():
+    """Write saved conversations to browser localStorage."""
+    data = json.dumps(st.session_state.saved_conversations)
+    escaped = json.dumps(data)
+    components.html(
+        f"<script>localStorage.setItem('bills_imdb_history',{escaped});</script>",
+        height=0,
+    )
+
+
+def auto_save_conversation():
+    """Upsert the current conversation into saved history."""
+    if not st.session_state.messages:
+        return
+    conv_id = st.session_state.conversation_id
+    title = next(
+        (m["display"][:80] for m in st.session_state.messages if m["role"] == "user"),
+        "Untitled",
+    )
+    saveable = []
+    for msg in st.session_state.messages:
+        content = msg["content"]
+        if not isinstance(content, str):
+            content = msg["display"]
+        saveable.append({
+            "role": msg["role"],
+            "display": msg["display"],
+            "content": content,
+        })
+    convs = st.session_state.saved_conversations
+    for conv in convs:
+        if conv["id"] == conv_id:
+            conv["title"] = title
+            conv["messages"] = saveable
+            break
+    else:
+        convs.append({"id": conv_id, "title": title, "messages": saveable})
+    st.session_state.saved_conversations = convs[-20:]
+    _save_history_to_browser()
 
 # ---------------------------------------------------------------------------
 # Resume upload / URL
@@ -825,6 +901,7 @@ if prompt := st.chat_input(
                 "display": full_text.strip(),
                 "content": full_text.strip(),
             })
+            auto_save_conversation()
 
         except anthropic.BadRequestError as e:
             st.error(f"Bad request: {e.message}")
