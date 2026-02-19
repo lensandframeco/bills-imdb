@@ -3,6 +3,7 @@ import anthropic
 import base64
 import requests
 import json
+import re
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
@@ -675,13 +676,37 @@ if "uploaded_file_data" not in st.session_state:
     st.session_state.uploaded_file_data = None
 
 # ---------------------------------------------------------------------------
-# Resume upload
+# Resume upload / URL
 # ---------------------------------------------------------------------------
-uploaded_file = st.file_uploader(
-    "Upload a resume / CV to research collaborators",
-    type=["pdf", "txt"],
-    help="Upload a PDF or text resume. Ask a question below to analyze it.",
-)
+def fetch_url_text(url):
+    """Fetch a URL and extract readable text from HTML."""
+    resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+    resp.raise_for_status()
+    html = resp.text
+    text = re.sub(
+        r"<(script|style|head|nav|footer)[^>]*>.*?</\1>",
+        "", html, flags=re.DOTALL | re.IGNORECASE,
+    )
+    text = re.sub(r"<[^>]+>", "\n", text)
+    text = re.sub(r"\n\s*\n", "\n\n", text)
+    return text.strip()
+
+
+upload_col, url_col = st.columns(2)
+
+with upload_col:
+    uploaded_file = st.file_uploader(
+        "Upload a resume / CV",
+        type=["pdf", "txt"],
+        help="Upload a PDF or text resume.",
+    )
+
+with url_col:
+    resume_url = st.text_input(
+        "Or paste a resume URL",
+        placeholder="https://example.com/resume",
+    )
+    load_url = st.button("Load URL", disabled=not resume_url)
 
 if uploaded_file is not None:
     raw_bytes = uploaded_file.read()
@@ -699,6 +724,18 @@ if uploaded_file is not None:
             "text": raw_bytes.decode("utf-8", errors="replace"),
         }
     st.success(f"Loaded **{file_name}** — ask a question below to analyze.")
+
+if load_url and resume_url:
+    try:
+        page_text = fetch_url_text(resume_url)
+        st.session_state.uploaded_file_data = {
+            "type": "text",
+            "name": resume_url,
+            "text": page_text,
+        }
+        st.success(f"Loaded **{resume_url}** — ask a question below to analyze.")
+    except Exception as e:
+        st.error(f"Could not fetch URL: {e}")
 
 
 def build_user_content(prompt_text):
